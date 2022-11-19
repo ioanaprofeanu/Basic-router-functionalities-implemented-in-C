@@ -1,0 +1,126 @@
+# Profeanu Ioana, 323CA
+# README file
+-------------------------------------------------------------------------------
+* Program description *
+   ~ Implemented a basic router program that is able to parse packets which
+   contain headers of IPv4 Protocol, ARP Protocol and ICMP protocol;
+   ~ The program flow is done within router.c, the header implement_router.h
+   contains the signature of all implemented functions, parse_tables_and_
+   packets.c contains all the operations made on the arp and route tables and
+   packets, parse_arp.c and parse_icmp.c contain the implemented functions for
+   each protocol (the forwarding IPv4 process is carried out throughout all
+   files); the preimplemented functions can be found within skel.c, queue.c
+   and list.c;
+-------------------------------------------------------------------------------
+* Program Flow *
+   ~ Implementation: 
+   	- firstly, we allocate memory and read the data for the route table
+    using the read_table function within the given skel, then we allocate
+    memory for the arp table and create the packets queue for the packets
+    awaiting the arrival of the arp reply with the destination mac address;
+    - in a while loop, we receive each packet; we extract the ethernet header
+    from the packet's payload and check its type; depending on it, we use the
+    forwarding process (if the type is ip) or the arp protocol (if the type is
+    arp);
+-------------------------------------------------------------------------------
+* ARP Protocol *
+   ~ *Receive ARP Request and send ARP Reply*:
+    - firstly, extract the arp header from the packet's payload
+   	- if the operation type is request, it means that we need to send a reply
+    to the sender of the packet; the arp request was made in order to find out     MAC address;
+    - in the send_arp_reply_packet function, first check if the destination ip
+    address matches our interface's ip address; if so, it means the packet is
+    for us; using the same received packet, first add our mac address as the
+    new sender mac address, and the "past" sender as the new destination; simi-
+    larly, exchange the ip and mac addresses from the arp header; change the
+    operation type to reply and send the packet;
+   ~ *Receive ARP Reply and parse its content*: 
+   	- if the operation is a reply, it means it is the response of a request we
+    previously made;
+    - in the parse_arp_reply_packet function, retrieve the sender mac and ip
+    addresses from the arp header (the mac address is what we didn't previously
+    know), and if it doesn't already exist in the arp table (we could've
+    received in a previous arp reply), add the new ip-mac entry in the table;
+    - then, dequeue the packets from the queue until the queue is empty; for
+    each packet, get its best route in the route table and the destination arp
+    entry; if the arp entry is null, enqueue the packet again and end itera-
+    tion; otherwise, add the mac address from the destination arp entry to the
+    ethernet header and send the packet;
+   ~ *Send ARP Request*: 
+   	- if we need the mac address of the next hop destination, in the send_
+    arp_request_packet function, we extract the sender mac address of the re-
+    quest as the best route's interface and add it to the ethernet header, and
+    the destination mac address will be the broadcast address, since we don't
+    know the actual address (everyone will receive our request, but we will
+    receive the reply from the interface we needed as the destination);
+    - create a new arp header, create a new arp header and populate its fields;
+    for the ip address, we know both the sender and the receiver (the only
+    unknown field is the mac);
+    - create a new packet and add the ethernet and arp headers, then send it;
+-------------------------------------------------------------------------------
+* Forwarding process *
+   ~ *Functions used for parsing the tables and packets*:
+    - functions for initialising the tables, retrieving the arp entry based on
+    a given destination ip;
+    - function for preparing the packet for sending (by changing its ethernet
+    header's mac addresses);
+   	- function with the already implemented laboratory function for linear
+    search within the route table, which verifies each entry and looks for the
+    greatest suitable mask;
+   ~ *Flow*:
+	- if the ethernet header type is IP, it means that we received an IPv4
+    packet; extract the header and check its protocol; if it's an ICMP
+    protocol, parse it;
+    - otherwise, check if it's checksum is correct; if not, drop it;
+    - check its TTL; if the time limit is exceeded, send an icmp error packet;
+    otherwise, decrease it and change the checksum;
+    - use the get_best_route function to get the best route to the destination
+    from the route table; if no entry is matched, send an icmp error for no
+    destination found; if an entry exists, extract the destination arp entry in
+    the arp table, using the get_arp_entry function;
+    - with the prepare_packet function, change the packet's ethernet header;
+    the sender's mac address will be the best route's interface mac, and the
+    destination's mac will be the destination arp entry's mac (if it exists);
+    - if the destination arp entry doesn't exist, enqueue the packet in the
+    queue of packets and send an arp request packet;
+    - otherwise, it means we know the next hop's mac address, thus send the
+    packet;
+-------------------------------------------------------------------------------
+* ICMP Protocol *
+   ~ *Send ICMP Error*:
+   	- in case of time limit exceeded or no destination found in the route table
+    we need to send an error icmp packet to the sender of the ip packet;
+    - within the error_send_icmp function, we change the mac addresses from the
+    ethernet header and the data from the ip header (including type, length and
+    checksum), then create a new icmp header with the suited type and code;
+    then, we build a new packet by adding the ethernet and ip headers, and also
+    adding 64 bytes from the data within the original message;
+   ~ *Send ICMP Echo Reply*:
+    - if the received ip header has an icmp protocol, if it is an echo request,
+    we need to answer it with an icmp echo reply;
+    - for that, using the ping_send_reply_icmp function, we make a similar
+    packet as the one sent in case of error, but this time we also create a new
+    ip header and initialize all its fields; we also add the un.echo.id and
+    un.echo.sequence to the icmp header;
+-------------------------------------------------------------------------------
+* Bonus Checksum *
+   ~ Because the ttl part of the ip header is decremented once receiving the
+   packet, the checksum of the ip header will automatically change. A simple
+   way to change the checksum is using the RFC1624 incremental algorithm,
+   described by the third equation: HC' = ~(~HC + ~m + m'), where HC is the
+   old  checksum, HC' is the new checksum, m is the old 16 bits ttl and m'
+   is the new one. In the formula, m and m' are represented as a 16 bits field,
+   whereas the ttl field is an 8 bits value; thus, we need to cast the value to
+   uint16_t. From the result, we decrement it by 1 because the result obtained 
+   using the formula is greater by 1 than the actual result;
+-------------------------------------------------------------------------------
+* Resources *
+~ !! Used the functions send_icmp, send_icmp_error, send_arp from the first
+version of the homework archive that was available when the homework was posted
+*as reference* for the ping_send_icmp, error_send_icmp, send_arp_reply_packet
+and parse_arp_reply_packet !!
+~ Forwarding Laboratory: https://ocw.cs.pub.ro/courses/pc/laboratoare/04
+~ RFC1624, Eq 3: https://datatracker.ietf.org/doc/html/rfc1624
+-------------------------------------------------------------------------------
+
+
